@@ -74,8 +74,10 @@ export class LinearRouter<T> implements Router<T> {
                 continue ROUTES_LOOP
               }
             } else {
+              // the wildcard runs to the end of this part and has to take at
+              // least one character of it, so it never crosses a `/`
               const index = path.indexOf('/', pos)
-              if (index === -1) {
+              if (index === -1 || index === pos) {
                 continue ROUTES_LOOP
               }
               pos = index

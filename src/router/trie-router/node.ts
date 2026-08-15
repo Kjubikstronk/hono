@@ -41,6 +41,8 @@ export class Node<T> {
   #patterns: Pattern[]
   // '/assets*' => [['assets', node]]; the prefix matches the rest of the path
   #suffixWildcards?: [string, Node<T>][]
+  // '/x*/y' => [['x', node]]; the prefix matches the rest of one part
+  #prefixWildcards?: [string, Node<T>][]
   #order: number = 0
   #params: Record<string, string> = emptyParams
 
@@ -83,9 +85,14 @@ export class Node<T> {
       if (pattern) {
         curNode.#patterns.push(pattern)
         possibleKeys.push(pattern[1])
-      } else if (i === len - 1 && p.length > 1 && p.charCodeAt(p.length - 1) === 42 /* '*' */) {
-        // '/assets*' matches everything after the prefix, as the other routers do
-        ;(curNode.#suffixWildcards ??= []).push([p.slice(0, -1), curNode.#children[key]])
+      } else if (p.length > 1 && p.charCodeAt(p.length - 1) === 42 /* '*' */) {
+        if (i === len - 1) {
+          // '/assets*' matches everything after the prefix, as the other routers do
+          ;(curNode.#suffixWildcards ??= []).push([p.slice(0, -1), curNode.#children[key]])
+        } else {
+          // '/x*/y' matches the rest of one part, and at least one character of it
+          ;(curNode.#prefixWildcards ??= []).push([p.slice(0, -1), curNode.#children[key]])
+        }
       }
       curNode = curNode.#children[key]
     }
@@ -160,6 +167,18 @@ export class Node<T> {
             this.#pushHandlerSets(handlerSets, nextNode, method, node.#params)
           } else {
             tempNodes.push(nextNode)
+          }
+        }
+
+        const prefixWildcards = node.#prefixWildcards
+        if (prefixWildcards !== undefined && !isLast) {
+          for (let k = 0, len3 = prefixWildcards.length; k < len3; k++) {
+            const prefix = prefixWildcards[k][0]
+            if (part.length > prefix.length && part.startsWith(prefix)) {
+              const child = prefixWildcards[k][1]
+              child.#params = node.#params
+              tempNodes.push(child)
+            }
           }
         }
 
