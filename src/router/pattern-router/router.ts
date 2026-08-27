@@ -10,15 +10,8 @@ export class PatternRouter<T> implements Router<T> {
   #routes: Route<T>[] = []
 
   add(method: string, path: string, handler: T) {
-    const endsWithWildcard = path.at(-1) === '*'
-    if (endsWithWildcard) {
-      // Drop the `*` only. Removing two characters also took the last character
-      // of the segment, so `/a/b*` collapsed to `/a/` and matched anything else
-      // below `/a/`.
-      path = path.slice(0, -1)
-    }
-    // `/assets/*` covers `/assets` and everything below it, but not `/assetsfoo`
-    const wildcardAfterSlash = endsWithWildcard && path.at(-1) === '/'
+    const suffix = path.endsWith('/*') ? '(?:$|/)' : path.endsWith('*') ? '' : '/?$'
+    path = path.replace(/\*$/, '')
     if (path.at(-1) === '?') {
       path = path.slice(0, -1)
       this.add(method, path.replace(/\/[^/]+$/, ''), handler)
@@ -31,21 +24,12 @@ export class PatternRouter<T> implements Router<T> {
           ? `/(?<${match[1]}>${match[2] || '[^/]+'})`
           : part === '/*'
             ? '/[^/]+'
-            : part.endsWith('*')
-              ? // '/x*' inside a path matches the rest of that part
-                part.slice(0, -1).replace(/[.\\+*[^\]$()]/g, '\\$&') + '[^/]+'
-              : part.replace(/[.\\+*[^\]$()]/g, '\\$&')
+            : part.replace(/[.\\+*[^\]$()]/g, '\\$&')
       }
     )
 
     try {
-      this.#routes.push([
-        new RegExp(
-          `^${parts.join('')}${endsWithWildcard ? (wildcardAfterSlash ? '(?:/|$)' : '') : '/?$'}`
-        ),
-        method,
-        handler,
-      ])
+      this.#routes.push([new RegExp(`^${parts.join('')}${suffix}`), method, handler])
     } catch {
       throw new UnsupportedPathError()
     }

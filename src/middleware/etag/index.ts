@@ -31,7 +31,8 @@ const stripWeak = (tag: string) => tag.replace(/^W\//, '')
 
 function etagMatches(etag: string, ifNoneMatch: string | null) {
   return (
-    ifNoneMatch != null && ifNoneMatch.split(/,\s*/).some((t) => stripWeak(t) === stripWeak(etag))
+    ifNoneMatch != null &&
+    ifNoneMatch.split(',').some((t) => stripWeak(t.trim()) === stripWeak(etag))
   )
 }
 
@@ -121,11 +122,11 @@ export const etag = (options?: ETagOptions): MiddlewareHandler => {
           ETag: etag,
         },
       })
-      c.res.headers.forEach((_, key) => {
+      for (const key of Array.from(c.res.headers.keys())) {
         if (retainedHeaders.indexOf(key.toLowerCase()) === -1) {
           c.res.headers.delete(key)
         }
-      })
+      }
     } else {
       c.res.headers.set('ETag', etag)
     }

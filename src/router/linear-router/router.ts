@@ -40,22 +40,10 @@ export class LinearRouter<T> implements Router<T> {
           }
         } else if (hasStar && !hasLabel) {
           const endsWithStar = routePath.charCodeAt(routePath.length - 1) === 42
-          // Drop the `*` only. Removing two characters also took the last
-          // character of the segment, so `/a/b*` collapsed to `/a/` and matched
-          // anything else below `/a/`.
-          const starPrefix = endsWithStar ? routePath.slice(0, -1) : routePath
-
-          // `/a/b/*` matches `/a/b` too
-          if (
-            endsWithStar &&
-            starPrefix.charCodeAt(starPrefix.length - 1) === 47 &&
-            path === starPrefix.slice(0, -1)
-          ) {
-            handlers.push([handler, emptyParams])
-            continue
-          }
-
-          const parts = starPrefix.split(splitByStarRe)
+          const endsWithSlashStar = routePath.endsWith('/*')
+          const parts = (
+            endsWithStar ? routePath.slice(0, endsWithSlashStar ? -2 : -1) : routePath
+          ).split(splitByStarRe)
 
           const lastIndex = parts.length - 1
           for (let j = 0, pos = 0, len = parts.length; j < len; j++) {
@@ -66,7 +54,11 @@ export class LinearRouter<T> implements Router<T> {
             }
             pos += part.length
             if (j === lastIndex) {
-              if (
+              if (endsWithSlashStar) {
+                if (pos !== path.length && path.charCodeAt(pos) !== 47) {
+                  continue ROUTES_LOOP
+                }
+              } else if (
                 !endsWithStar &&
                 pos !== path.length &&
                 !(pos === path.length - 1 && path.charCodeAt(pos) === 47)
@@ -74,10 +66,8 @@ export class LinearRouter<T> implements Router<T> {
                 continue ROUTES_LOOP
               }
             } else {
-              // the wildcard runs to the end of this part and has to take at
-              // least one character of it, so it never crosses a `/`
               const index = path.indexOf('/', pos)
-              if (index === -1 || index === pos) {
+              if (index === -1) {
                 continue ROUTES_LOOP
               }
               pos = index

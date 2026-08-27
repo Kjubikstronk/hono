@@ -2,6 +2,7 @@ import type { Params } from '../../router'
 import { METHOD_NAME_ALL } from '../../router'
 import type { Pattern } from '../../utils/url'
 import { getPattern, splitPath, splitRoutingPath } from '../../utils/url'
+import { createNullObject } from '../utils'
 
 type HandlerSet<T> = {
   handler: T
@@ -13,99 +14,51 @@ type HandlerParamsSet<T> = HandlerSet<T> & {
   params: Record<string, string>
 }
 
-const emptyParams = Object.create(null)
-
-// Byte offset of each part within the original path, so a match can look at the
-// rest of the path rather than a single part.
-const computePartOffsets = (path: string, parts: string[], len: number): number[] => {
-  const offsets = new Array(len)
-  let offset = path[0] === '/' ? 1 : 0
-  for (let i = 0; i < len; i++) {
-    offsets[i] = offset
-    offset += parts[i].length + 1
-  }
-  return offsets
-}
-
-const hasChildren = (children: Record<string, unknown>): boolean => {
-  for (const _ in children) {
-    return true
-  }
-  return false
-}
+const emptyParams = createNullObject()
+let order = 0
 
 export class Node<T> {
-  #methods: Record<string, HandlerSet<T>>[]
+  #methods: Record<string, HandlerSet<T>>[] = []
 
-  #children: Record<string, Node<T>>
-  #patterns: Pattern[]
-  // '/assets*' => [['assets', node]]; the prefix matches the rest of the path
-  #suffixWildcards?: [string, Node<T>][]
-  // '/x*/y' => [['x', node]]; the prefix matches the rest of one part
-  #prefixWildcards?: [string, Node<T>][]
-  #order: number = 0
+  #children: Record<string, Node<T>> = createNullObject()
+  #patterns: Node<T>[] = []
+  #pattern?: Pattern | string
   #params: Record<string, string> = emptyParams
 
-  constructor(method?: string, handler?: T, children?: Record<string, Node<T>>) {
-    this.#children = children || Object.create(null)
-    this.#methods = []
-    if (method && handler) {
-      const m: Record<string, HandlerSet<T>> = Object.create(null)
-      m[method] = { handler, possibleKeys: [], score: 0 }
-      this.#methods = [m]
-    }
-    this.#patterns = []
-  }
-
-  insert(method: string, path: string, handler: T): Node<T> {
-    this.#order = ++this.#order
-
+  insert(method: string, path: string, handler: T): void {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let curNode: Node<T> = this
     const parts = splitRoutingPath(path)
 
-    const possibleKeys: string[] = []
+    const possibleKeys = new Set<string>()
 
-    for (let i = 0, len = parts.length; i < len; i++) {
-      const p: string = parts[i]
-      const nextP = parts[i + 1]
-      const pattern = getPattern(p, nextP)
-      const key = Array.isArray(pattern) ? pattern[0] : p
+    let i = 0
+    for (const p of parts) {
+      const nextP = parts[++i]
+      const pattern =
+        getPattern(p, nextP) ||
+        (nextP === undefined && p && p.indexOf('*') === p.length - 1 ? p : null)
+      const isParam = Array.isArray(pattern)
+      const key = isParam ? pattern[0] : pattern || p
 
-      if (key in curNode.#children) {
-        curNode = curNode.#children[key]
-        if (pattern) {
-          possibleKeys.push(pattern[1])
-        }
-        continue
+      const child = (curNode.#children[key] ||= new Node())
+      if (pattern && !child.#pattern) {
+        child.#pattern = pattern
+        curNode.#patterns.push(child)
       }
-
-      curNode.#children[key] = new Node()
-
-      if (pattern) {
-        curNode.#patterns.push(pattern)
-        possibleKeys.push(pattern[1])
-      } else if (p.length > 1 && p.charCodeAt(p.length - 1) === 42 /* '*' */) {
-        if (i === len - 1) {
-          // '/assets*' matches everything after the prefix, as the other routers do
-          ;(curNode.#suffixWildcards ??= []).push([p.slice(0, -1), curNode.#children[key]])
-        } else {
-          // '/x*/y' matches the rest of one part, and at least one character of it
-          ;(curNode.#prefixWildcards ??= []).push([p.slice(0, -1), curNode.#children[key]])
-        }
+      curNode = child
+      if (isParam) {
+        possibleKeys.add(pattern[1])
       }
-      curNode = curNode.#children[key]
     }
 
     curNode.#methods.push({
       [method]: {
         handler,
-        possibleKeys: possibleKeys.filter((v, i, a) => a.indexOf(v) === i),
-        score: this.#order,
+        possibleKeys: [...possibleKeys],
+        score: ++order,
       },
     })
-
-    return curNode
   }
 
   #pushHandlerSets(
@@ -118,18 +71,13 @@ export class Node<T> {
     for (let i = 0, len = node.#methods.length; i < len; i++) {
       const m = node.#methods[i]
       const handlerSet = (m[method] || m[METHOD_NAME_ALL]) as HandlerParamsSet<T>
-      const processedSet: Record<number, boolean> = {}
-      if (handlerSet !== undefined) {
-        handlerSet.params = Object.create(null)
+      if (handlerSet) {
+        handlerSet.params = createNullObject()
         handlerSets.push(handlerSet)
-        if (nodeParams !== emptyParams || (params && params !== emptyParams)) {
-          for (let i = 0, len = handlerSet.possibleKeys.length; i < len; i++) {
-            const key = handlerSet.possibleKeys[i]
-            const processed = processedSet[handlerSet.score]
-            handlerSet.params[key] =
-              params?.[key] && !processed ? params[key] : (nodeParams[key] ?? params?.[key])
-            processedSet[handlerSet.score] = true
-          }
+        for (let i = 0, len = handlerSet.possibleKeys.length; i < len; i++) {
+          const key = handlerSet.possibleKeys[i]
+          handlerSet.params[key] =
+            params?.[key] && !i ? params[key] : (nodeParams[key] ?? params?.[key])
         }
       }
     }
@@ -170,57 +118,40 @@ export class Node<T> {
           }
         }
 
-        const prefixWildcards = node.#prefixWildcards
-        if (prefixWildcards !== undefined && !isLast) {
-          for (let k = 0, len3 = prefixWildcards.length; k < len3; k++) {
-            const prefix = prefixWildcards[k][0]
-            if (part.length > prefix.length && part.startsWith(prefix)) {
-              const child = prefixWildcards[k][1]
-              child.#params = node.#params
-              tempNodes.push(child)
-            }
-          }
-        }
-
-        const suffixWildcards = node.#suffixWildcards
-        if (suffixWildcards !== undefined) {
-          partOffsets ??= computePartOffsets(path, parts, len)
-          const restPathString = path.substring(partOffsets[i])
-          for (let k = 0, len3 = suffixWildcards.length; k < len3; k++) {
-            if (restPathString.startsWith(suffixWildcards[k][0])) {
-              this.#pushHandlerSets(handlerSets, suffixWildcards[k][1], method, node.#params)
-            }
-          }
-        }
-
-        for (let k = 0, len3 = node.#patterns.length; k < len3; k++) {
-          const pattern = node.#patterns[k]
+        for (const child of node.#patterns) {
+          const pattern = child.#pattern!
           const params = node.#params === emptyParams ? {} : { ...node.#params }
 
           // Wildcard
           // '/hello/*/foo' => match /hello/bar/foo
-          if (pattern === '*') {
-            const astNode = node.#children['*']
-            if (astNode) {
-              this.#pushHandlerSets(handlerSets, astNode, method, node.#params)
-              astNode.#params = params
-              tempNodes.push(astNode)
+          if (typeof pattern === 'string') {
+            if (pattern === '*' || part.startsWith(pattern.slice(0, -1))) {
+              this.#pushHandlerSets(handlerSets, child, method, node.#params)
+              if (pattern === '*') {
+                child.#params = params
+                tempNodes.push(child)
+              }
             }
             continue
           }
 
-          const [key, name, matcher] = pattern
+          const [, name, matcher] = pattern
 
-          if (!part && !(matcher instanceof RegExp)) {
+          if (!part && matcher === true) {
             continue
           }
 
-          const child = node.#children[key]
-
           // `/js/:filename{[a-z]+.js}` => match /js/chunk/123.js
-          if (matcher instanceof RegExp) {
-            partOffsets ??= computePartOffsets(path, parts, len)
-            const restPathString = path.substring(partOffsets[i])
+          if (matcher !== true) {
+            if (!partOffsets) {
+              partOffsets = []
+              let offset = path[0] === '/' ? 1 : 0
+              for (let p = 0; p < len; p++) {
+                partOffsets[p] = offset
+                offset += parts[p].length + 1
+              }
+            }
+            const restPathString = path.slice(partOffsets[i])
 
             const m = matcher.exec(restPathString)
             if (m) {
@@ -238,11 +169,12 @@ export class Node<T> {
                 )
               }
 
-              if (hasChildren(child.#children)) {
+              for (const _ in child.#children) {
                 child.#params = params
                 const componentCount = m[0].match(/\//g)?.length ?? 0
                 const targetCurNodes = (curNodesQueue[componentCount] ||= [])
                 targetCurNodes.push(child)
+                break
               }
 
               continue
@@ -274,7 +206,7 @@ export class Node<T> {
       curNodes = shifted ? tempNodes.concat(shifted) : tempNodes
     }
 
-    if (handlerSets.length > 1) {
+    if (handlerSets[1]) {
       handlerSets.sort((a, b) => {
         return a.score - b.score
       })
