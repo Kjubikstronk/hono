@@ -2,6 +2,7 @@ import { createNullObject } from '../utils'
 
 export const LABEL_REG_EXP_STR = '[^/]+'
 export const ONLY_WILDCARD_REG_EXP_STR = '.*'
+const PREFIXED_WILDCARD_REG_EXP_STR = '[^/]*'
 export const TAIL_WILDCARD_REG_EXP_STR = '(?:|/.*)'
 export const PATH_ERROR = Symbol()
 
@@ -66,7 +67,9 @@ export class Node {
           ? token === '*'
             ? i === len - 1
               ? ['', '', ONLY_WILDCARD_REG_EXP_STR] // '*' matches to all the trailing paths
-              : ['', '', LABEL_REG_EXP_STR]
+              : tokens[i - 1] === '/'
+                ? ['', '', LABEL_REG_EXP_STR] // a standalone '*' takes a whole segment
+                : ['', '', PREFIXED_WILDCARD_REG_EXP_STR] // 'x*' may take nothing
             : null
           : token === '/*'
             ? ['', '', TAIL_WILDCARD_REG_EXP_STR] // '/path/to/*' is /\/path\/to(?:|/.*)$

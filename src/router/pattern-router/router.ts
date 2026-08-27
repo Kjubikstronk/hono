@@ -24,7 +24,7 @@ export class PatternRouter<T> implements Router<T> {
           ? `/(?<${match[1]}>${match[2] || '[^/]+'})`
           : part === '/*'
             ? '/[^/]+'
-            : part.replace(/[.\\+*[^\]$()]/g, '\\$&')
+            : part.replace(/[.\\+[^\]$()]/g, '\\$&').replace(/\*/g, '[^/]*')
       }
     )
 

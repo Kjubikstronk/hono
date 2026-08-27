@@ -106,75 +106,37 @@ export const runTest = ({
       })
     })
 
-    describe('Suffix wildcard', () => {
-      it('Matches the rest of the path', async () => {
-        router.add('GET', '/assets*', 'get assets')
+    describe('Wildcard', () => {
+      // Behaviour agreed in #5243. A wildcard with a non-empty prefix consumes zero or
+      // more characters and stays inside its own segment; a standalone `*` segment
+      // consumes at least one when a segment follows it. Either may consume the rest of
+      // the path, separators included, when it ends the route.
+      const cases: [route: string, path: string, shouldMatch: boolean][] = [
+        ['/x*/y', '/x/y', true],
+        ['/x*/y', '/xz/y', true],
+        ['/x*/y', '/xzz/y', true],
+        ['/x*/y', '/x/z/y', false],
+        ['/a/b*/c', '/a/b/c', true],
+        ['/a/b*/c', '/a/bz/c', true],
+        ['/a/b*/c', '/a/b/z/c', false],
+        ['/wild/*/card', '/wild//card', false],
+        ['/wild/*/card', '/wild/x/card', true],
+        ['/wild/*/card', '/wild/x/y/card', false],
+        ['/assets*', '/assets', true],
+        ['/assets*', '/assets123', true],
+        ['/assets*', '/assets/foo', true],
+      ]
 
-        for (const path of ['/assets', '/assets/app.js', '/assets/nested/app.js']) {
+      for (const [route, path, shouldMatch] of cases) {
+        it(`${route} ${shouldMatch ? 'matches' : 'does not match'} ${path}`, async () => {
+          router.add('GET', route, 'wildcard')
           const res = match('GET', path)
-          expect(res.length).toBe(1)
-          expect(res[0].handler).toEqual('get assets')
-        }
-      })
-
-      it('Does not match another prefix', async () => {
-        router.add('GET', '/assets*', 'get assets')
-        expect(match('GET', '/static/app.js').length).toBe(0)
-      })
-
-      it('Does not run a slash wildcard past its segment', async () => {
-        router.add('GET', '/assets/*', 'get assets')
-
-        expect(match('GET', '/assets').length).toBe(1)
-        expect(match('GET', '/assets/app.js').length).toBe(1)
-        expect(match('GET', '/assetsfoo').length).toBe(0)
-      })
-
-      it('Matches below the root', async () => {
-        router.add('GET', '/a/b*', 'get b')
-
-        for (const path of ['/a/b', '/a/b/c']) {
-          const res = match('GET', path)
-          expect(res.length).toBe(1)
-          expect(res[0].handler).toEqual('get b')
-        }
-
-        expect(match('GET', '/a/c').length).toBe(0)
-      })
-    })
-
-    describe('Mid-path wildcard', () => {
-      it('Matches the rest of a part', async () => {
-        router.add('GET', '/x*/y', 'get x')
-
-        for (const path of ['/xz/y', '/xzz/y']) {
-          const res = match('GET', path)
-          expect(res.length).toBe(1)
-          expect(res[0].handler).toEqual('get x')
-        }
-      })
-
-      it('Requires at least one character', async () => {
-        router.add('GET', '/x*/y', 'get x')
-        expect(match('GET', '/x/y').length).toBe(0)
-      })
-
-      it('Does not run past the part it is in', async () => {
-        router.add('GET', '/x*/y', 'get x')
-        expect(match('GET', '/x/z/y').length).toBe(0)
-        expect(match('GET', '/xz/z/y').length).toBe(0)
-      })
-
-      it('Matches below the root', async () => {
-        router.add('GET', '/a/b*/c', 'get b')
-
-        const res = match('GET', '/a/bz/c')
-        expect(res.length).toBe(1)
-        expect(res[0].handler).toEqual('get b')
-
-        expect(match('GET', '/a/b/c').length).toBe(0)
-        expect(match('GET', '/a/b/z/c').length).toBe(0)
-      })
+          expect(res.length).toBe(shouldMatch ? 1 : 0)
+          if (shouldMatch) {
+            expect(res[0].handler).toEqual('wildcard')
+          }
+        })
+      }
     })
 
     describe('Complex', () => {
