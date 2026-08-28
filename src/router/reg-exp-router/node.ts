@@ -67,9 +67,11 @@ export class Node {
           ? token === '*'
             ? i === len - 1
               ? ['', '', ONLY_WILDCARD_REG_EXP_STR] // '*' matches to all the trailing paths
-              : tokens[i - 1] === '/'
-                ? ['', '', LABEL_REG_EXP_STR] // a standalone '*' takes a whole segment
-                : ['', '', PREFIXED_WILDCARD_REG_EXP_STR] // 'x*' may take nothing
+              : tokens[i + 1] !== '/'
+                ? null // only a '*' that ends a segment is a wildcard
+                : tokens[i - 1] === '/'
+                  ? ['', '', LABEL_REG_EXP_STR] // a standalone '*' takes a whole segment
+                  : ['', '', PREFIXED_WILDCARD_REG_EXP_STR] // 'x*' may take nothing
             : null
           : token === '/*'
             ? ['', '', TAIL_WILDCARD_REG_EXP_STR] // '/path/to/*' is /\/path\/to(?:|/.*)$
