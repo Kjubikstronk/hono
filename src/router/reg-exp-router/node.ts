@@ -98,13 +98,19 @@ export class Node {
 
         nextNode = node.#children[regexpStr]
         if (!nextNode) {
-          if (regexpStr !== ONLY_WILDCARD_REG_EXP_STR && regexpStr !== TAIL_WILDCARD_REG_EXP_STR) {
+          if (
+            regexpStr !== ONLY_WILDCARD_REG_EXP_STR &&
+            (regexpStr !== TAIL_WILDCARD_REG_EXP_STR ||
+              node.#children[PREFIXED_WILDCARD_REG_EXP_STR])
+          ) {
             for (const k in node.#children) {
               if (
                 // a single-char pattern coexists with single-char literals as a literal does
                 (regexpStr.length > 1 || k.length > 1) &&
                 k !== ONLY_WILDCARD_REG_EXP_STR &&
-                k !== TAIL_WILDCARD_REG_EXP_STR
+                // a prefixed wildcard only partially overlaps a tail wildcard, so the two
+                // cannot be represented together
+                (k !== TAIL_WILDCARD_REG_EXP_STR || regexpStr === PREFIXED_WILDCARD_REG_EXP_STR)
               ) {
                 throw PATH_ERROR
               }
